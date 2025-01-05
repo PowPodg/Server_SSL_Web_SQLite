@@ -22,7 +22,7 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
 	HttpsServer srv("cert.pem", "key.pem", path_web_inerface);
 	srv.Use("GET", "*", nullptr);
 ```
-> #### 3. SQLite datfbase usage: (for the web interface variant presented in 'web_interface/build'
+> #### 3. SQLite datfbase usage: (for the web interface variant presented in 'web_interface/build')
 ```cpp
        std::string base_name = "base_sql.db";
        vector <std::string> fields_base = { "name", "email" };
