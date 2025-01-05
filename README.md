@@ -34,5 +34,5 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
 > #### A variant of a dynamically modifiable web interface built with React: (web_interface/build)
 
 <p align="center">
-  <img src="web_interface/web_inreface.png" width="400">
+  <img src="web_interface/web_inreface.png" width="700">
 </p>
