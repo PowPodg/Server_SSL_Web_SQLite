@@ -16,7 +16,7 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
 	cout << req;
 	});
 ```
-> #### 2.
+> #### 2. Web interface usage
 ```cpp
 	std::string path_web_inerface = "web_interface/build";
 	HttpsServer srv("cert.pem", "key.pem", path_web_inerface);
