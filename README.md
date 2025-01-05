@@ -6,15 +6,15 @@
 ### Usage variants:
 > #### 1.
 ```cpp
-HttpsServer srv("cert.pem", "key.pem");
-srv.Get("/1", [](const std::string_view& req, std::string_view& resp) {
-	resp = "Page 1";
-	cout << req;
-	});
-srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
-	resp = "Page 2";
-	cout << req;
-	});
+	HttpsServer srv("cert.pem", "key.pem");
+	srv.Use("GET","/1", [&](const std::string& req, std::string& resp) {
+        resp = "Page 1";
+		cout << req;
+		});
+	srv.Use("GET", "/2", [&](const std::string& req, std::string& resp) {
+		resp = "Page 2";
+		cout << req;
+		});
 ```
 > #### 2. Web interface usage:
 ```cpp
