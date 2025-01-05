@@ -16,9 +16,18 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
 	cout << req;
 	});
 ```
-> #### 2. Web interface usage
+> #### 2. Web interface usage:
 ```cpp
 	std::string path_web_inerface = "web_interface/build";
 	HttpsServer srv("cert.pem", "key.pem", path_web_inerface);
 	srv.Use("GET", "*", nullptr);
+```
+> #### 3. SQLite datfbase usage:
+```cpp
+       std::string base_name = "base_sql.db";
+       vector <std::string> fields_base = { "name", "email" };
+       HttpsServer srv("cert.pem", "key.pem", path_web_inerface, base_name, fields_base);
+       srv.Use("GET",    "/api/items", nullptr);
+       srv.Use("POST",   "/api/items", nullptr);
+       srv.Use("DELETE", "/api/items/id", nullptr);
 ```
