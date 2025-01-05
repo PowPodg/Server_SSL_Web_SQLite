@@ -14,3 +14,4 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
 	resp = "Page 2";
 	cout << req;
 	});
+```
