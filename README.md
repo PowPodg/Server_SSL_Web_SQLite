@@ -31,7 +31,7 @@ srv.Get("/2", [](const std::string_view& req, std::string_view& resp) {
        srv.Use("POST",   "/api/items", nullptr);
        srv.Use("DELETE", "/api/items/id", nullptr);
 ```
-A variant of the web interface created using React:
+#### A variant of the web interface created using React: (web_interface/build)
 
 <p align="center">
   <img src="web_interface/web_inreface.png" width="400">
