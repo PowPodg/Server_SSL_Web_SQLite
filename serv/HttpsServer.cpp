@@ -370,7 +370,11 @@ void HttpsServer::Client::hndPostRequest(SSL* ssl_temp, const std::string& body,
 		bool result = false;
 		for (int i = 0; i < _sqlbd->_fields.size(); ++i) {
 			if (jsonData.isMember(_sqlbd->_fields[i])) result = true;
-			else result = false;
+			else 
+			{
+				result = false;
+				break;
+			}
 		}
 		if (result) {
 			std::vector<std::string> data_add;
