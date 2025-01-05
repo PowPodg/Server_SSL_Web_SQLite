@@ -14,7 +14,6 @@ add_subdirectory(sqlite)
 
 find_package(OpenSSL REQUIRED)
 
-# Связываем статическую библиотеку jsoncpp с проектом
 if(WIN32)
   target_link_libraries(serv_lib PRIVATE sql_lib json_lib OpenSSL::SSL OpenSSL::Crypto ws2_32)
 else()

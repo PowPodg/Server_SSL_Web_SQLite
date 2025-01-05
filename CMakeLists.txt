@@ -1,8 +1,6 @@
 ﻿cmake_minimum_required (VERSION 3.23)
 
 project ("main" LANGUAGES C CXX )
-set (_VERSION_MAJOR 0)
-set (_VERSION_MINOR 1)
 
 set(CMAKE_CXX_STANDARD 20)
 
