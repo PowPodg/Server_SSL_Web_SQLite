@@ -3,9 +3,8 @@
 ### Simplified cross-platform (Windows, Linux) http server for ssl support and with integrated SQLite database 
 ### This project shows an example of using stackless coroutines (including nested coroutines) for client connections
 
-> Usage variants:
-1.
-```cpp
+Usage variants:
+> ```cpp
 HttpsServer srv("cert.pem", "key.pem");
 srv.Get("/1", [](const std::string_view& req, std::string_view& resp) {
 	resp = "Page 1";
