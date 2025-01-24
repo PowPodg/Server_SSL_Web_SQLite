@@ -1,7 +1,7 @@
 # HTTPS server with integrated SQLite database using stackless coroutines (C++20) 
 
 ### 1.Simplified cross-platform (Windows, Linux) http server for ssl support and with integrated SQLite database 
-### This project shows an example of using stackless coroutines (including nested coroutines) for client connections
+This project shows an example of using stackless coroutines (including nested coroutines) for client connections
 
 ### Usage variants:
 > #### 1.1
@@ -31,12 +31,12 @@
        srv.Use("POST",   "/api/items", nullptr);
        srv.Use("DELETE", "/api/items/id", nullptr);
 ```
-### 2. Second version of the server. 
-### It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
-### and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
-### This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
-### queries connecting to a PostgreSQL database.
-#### (Boost.Asio header <coroutine> is plugged inside the library itself if the compiler supports C++20 coroutines)
+### 2. Second version of the server 10k. 
+It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
+and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
+This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
+queries connecting to a PostgreSQL database.
+(Boost.Asio header <coroutine> is plugged inside the library itself if the compiler supports C++20 coroutines)
 
 ```cpp
  #include "serv_boost/HttpsServerBoost.h"
