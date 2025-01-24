@@ -31,7 +31,7 @@ This project shows an example of using stackless coroutines (including nested co
        srv.Use("POST",   "/api/items", nullptr);
        srv.Use("DELETE", "/api/items/id", nullptr);
 ```
-### 2. Second version of the server 10k. 
+### 2. Second version of the server 10k with use PostgreSQL. 
 It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
 and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
 This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
