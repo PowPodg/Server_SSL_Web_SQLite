@@ -85,7 +85,7 @@ std::string HttpsServBoost::get_cached_file(const std::string& file_path)
 {
 	{
 		std::lock_guard<std::mutex> lock(cache_mutex);
-		auto& ordered_index = file_cache.get<0>(); // Доступ к индексу по file_path
+		auto& ordered_index = file_cache.get<0>(); 
 		auto it = ordered_index.find(file_path);
 		if (it != ordered_index.end()) {
 			file_cache.get<1>().relocate(file_cache.get<1>().begin(), file_cache.project<1>(it));
@@ -100,7 +100,7 @@ std::string HttpsServBoost::get_cached_file(const std::string& file_path)
 void HttpsServBoost::add_to_cache(const std::string& file_path, const std::string& content)
 {
 	std::lock_guard<std::mutex> lock(cache_mutex);
-	auto& ordered_index = file_cache.get<0>(); // Доступ к индексу по file_path
+	auto& ordered_index = file_cache.get<0>(); 
 	auto it = ordered_index.find(file_path);
 	if (it != ordered_index.end()) {
 		file_cache.get<1>().relocate(file_cache.get<1>().begin(), file_cache.project<1>(it));
@@ -270,10 +270,10 @@ boost::asio::awaitable<void> HttpsServBoost::Execution(boost::asio::ssl::stream<
 
 					std::string insert_query = "INSERT INTO users (name, email) VALUES ('" + name + "', '" + email + "') RETURNING id, name, email";
 					if (db_pool) {
-						boost::json::object  result_json = co_await execute_query(insert_query);  // Вставляем запись в БД и получаем ID вставленной записи
+						boost::json::object  result_json = co_await execute_query(insert_query); 
 						res.result(boost::beast::http::status::created);
 						res.set(boost::beast::http::field::content_type, "application/json");
-						res.body() = boost::json::serialize(result_json);  // Отправляем результат в формате JSON
+						res.body() = boost::json::serialize(result_json); 
 					}
 					else {
 						bad_req();
@@ -281,10 +281,10 @@ boost::asio::awaitable<void> HttpsServBoost::Execution(boost::asio::ssl::stream<
 				}
 				else if (req.method() == boost::beast::http::verb::delete_ && target.starts_with("/api/items/id/") && p.first.method == "DELETE")
 				{
-					std::string id = target.substr(target.find_last_of("/") + 1);  // Получаем id из URL
+					std::string id = target.substr(target.find_last_of("/") + 1);  
 					std::string delete_query = "DELETE FROM users WHERE id = " + id;
 					if (db_pool) {
-						co_await execute_query(delete_query);  // Удаляем запись из БД
+						co_await execute_query(delete_query); 
 						res.result(boost::beast::http::status::ok);
 						res.set(boost::beast::http::field::content_type, "application/json");
 						res.body() = "{\"status\": \"deleted\"}";
