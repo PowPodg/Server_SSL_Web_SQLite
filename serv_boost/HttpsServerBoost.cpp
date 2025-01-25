@@ -354,7 +354,7 @@ boost::asio::awaitable<std::string> HttpsServBoost::query_database(const std::st
 		co_return boost::json::serialize(json_result);
 	}
 	catch (const std::exception& e) {
-		std::cerr << "Ошибка базы данных: " << e.what() << std::endl;
+		std::cerr << "Error data base: " << e.what() << std::endl;
 		if (conn) {
 			db_pool->return_connection(conn);
 		}
