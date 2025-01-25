@@ -238,7 +238,7 @@ boost::asio::awaitable<void> HttpsServBoost::Execution(boost::asio::ssl::stream<
 					{
 						if (target == p.first.path) {
 							if (db_pool) {
-								std::string result = co_await query_database("SELECT id, name, email FROM users");// ("SELECT id, name, email FROM users");
+								std::string result = co_await query_database("SELECT id, name, email FROM users");
 								res.result(boost::beast::http::status::ok);
 								res.set(boost::beast::http::field::content_type, "application/json");
 								res.body() = result;
