@@ -10,7 +10,6 @@
 #include <fstream>
 #include <sstream>
 #include <functional>
-#include <unordered_map>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -88,7 +87,6 @@ class HttpsServBoost
 	boost::asio::io_context io_context;
 	std::unique_ptr<boost::asio::ssl::context> ssl_context;
 	std::string base_config = std::string(SIZE_STING, '\0');
-	const std::string STATIC_FILES_PATH = "./build";
 
 	std::mutex connection_mutex;
 	std::list<std::string> cache_order;
