@@ -15,7 +15,22 @@ add_subdirectory(sqlite)
 find_package(OpenSSL REQUIRED)
 
 if(WIN32)
-  target_link_libraries(serv_lib PRIVATE sql_lib json_lib OpenSSL::SSL OpenSSL::Crypto ws2_32)
+    target_link_libraries(serv_lib
+        PUBLIC
+            OpenSSL::SSL
+            OpenSSL::Crypto
+        PRIVATE
+            sql_lib
+            json_lib
+            ws2_32
+    )
 else()
-  target_link_libraries(serv_lib PRIVATE sql_lib json_lib OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(serv_lib
+        PUBLIC
+            OpenSSL::SSL
+            OpenSSL::Crypto
+        PRIVATE
+            sql_lib
+            json_lib
+    )
 endif()

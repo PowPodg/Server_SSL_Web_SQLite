@@ -4,12 +4,12 @@ project ("main" LANGUAGES C CXX )
 
 set(CMAKE_CXX_STANDARD 20)
 
-if(WIN32)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static")
-endif()
+#if(WIN32)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static")
+#endif()
 
-add_subdirectory(serv)
+add_subdirectory(serv_coroutine)
 
 add_executable (${PROJECT_NAME} "main.cpp" )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE serv_lib)
+target_link_libraries(${PROJECT_NAME} PRIVATE serv_coroutine_lib)

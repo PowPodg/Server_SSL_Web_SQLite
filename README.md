@@ -1,7 +1,7 @@
 # Two variants HTTPS server with integrated database access capability, using stage-free coroutines (C++20)
 
 ### 1. Simplified cross-platform (Windows, Linux) http server for ssl support and with integrated SQLite database 
-This project shows an example of using stackless coroutines (including nested coroutines) for client connections
+This project shows an example of using stackless coroutines (including nested coroutines) for client connections (demonstration of basic coroutine mechanics)
 
 ### Usage variants:
 > #### 1.1
@@ -31,7 +31,13 @@ This project shows an example of using stackless coroutines (including nested co
        srv.Use("POST",   "/api/items", nullptr);
        srv.Use("DELETE", "/api/items/id", nullptr);
 ```
-### 2. Second version of the server 10k with use PostgreSQL. 
+### 2.  Extended server version
+`serv_coroutine` uses C++20 coroutines to process socket/SSL operations through client coroutine sessions and a scheduler. While a session is waiting for socket-read or socket-write readiness, the server loop can run a service function.
+ ```cpp
+ #include "serv_coroutine/HttpsServerCoroutine.h"
+ ```
+
+### 3. Version of the server 10k with use PostgreSQL. 
 It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
 and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
 This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
@@ -62,4 +68,4 @@ int main() {
   <img src="web_interface/web_inreface.png" width="700">
 </p>
 
-### 3. [Simple TCP server in C++ 20, which is a simple key-value store in a PostgerSQL database.](ServerKeyValue/) 
+### 4. [Simple TCP server in C++ 20, which is a simple key-value store in a PostgerSQL database.](ServerKeyValue/) 
