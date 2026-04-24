@@ -1,4 +1,4 @@
-# Variants HTTPS server with integrated database access capability, using stage-free coroutines (C++20)
+# HTTPS Server Variants with Database Access and C++20 Coroutines
 
 ### 1. Simplified cross-platform (Windows, Linux) http server for ssl support and with integrated SQLite database 
 This project shows an example of using stackless coroutines (including nested coroutines) for client connections (demonstration of basic coroutine mechanics)
@@ -37,7 +37,7 @@ This project shows an example of using stackless coroutines (including nested co
  #include "serv_coroutine/HttpsServerCoroutine.h"
  ```
 
-### 3. Version of the server 10k with use PostgreSQL. 
+### 3. Base server version with PostgreSQL. 
 It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
 and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
 This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
