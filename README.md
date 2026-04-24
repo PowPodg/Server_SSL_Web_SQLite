@@ -38,11 +38,11 @@ This project shows an example of using stackless coroutines (including nested co
  ```
 
 ### 3. Base server version with PostgreSQL. 
-It is implemented in C++ using C++20 coroutines, Boost.Asio library (version 1.80+ to support C++20 coroutines) 
-and PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
+It is implemented in C++ using C++20 coroutines, the Boost.Asio library (version 1.80+ to support C++20 coroutines) 
+and the PostgreSQL client - libpqxx. Boost.Asio and C++20 coroutines are also used for asynchronous queries to PostgreSQL.
 This example demonstrates a server that can potentially (depending on hardware capabilities) handle 10k 
 queries connecting to a PostgreSQL database.
-(Boost.Asio header "coroutine" is plugged inside the library itself if the compiler supports C++20 coroutines)
+(If the compiler supports C++20 coroutines, Boost.Asio provides the coroutine support used by this server directly through its own headers.)
 
 ```cpp
  #include "serv_boost/HttpsServerBoost.h"
