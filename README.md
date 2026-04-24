@@ -1,4 +1,4 @@
-# Two variants HTTPS server with integrated database access capability, using stage-free coroutines (C++20)
+# Variants HTTPS server with integrated database access capability, using stage-free coroutines (C++20)
 
 ### 1. Simplified cross-platform (Windows, Linux) http server for ssl support and with integrated SQLite database 
 This project shows an example of using stackless coroutines (including nested coroutines) for client connections (demonstration of basic coroutine mechanics)
