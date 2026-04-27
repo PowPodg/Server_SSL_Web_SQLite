@@ -26,12 +26,14 @@ if(NOT TARGET sql_lib)
 endif()
 
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 if(WIN32)
     target_link_libraries(serv_coroutine_lib
         PUBLIC
             OpenSSL::SSL
             OpenSSL::Crypto
+            Threads::Threads
         PRIVATE
             sql_lib
             json_lib
@@ -42,6 +44,7 @@ else()
         PUBLIC
             OpenSSL::SSL
             OpenSSL::Crypto
+            Threads::Threads
         PRIVATE
             sql_lib
             json_lib

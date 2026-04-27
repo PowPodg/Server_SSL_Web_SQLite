@@ -9,10 +9,190 @@
 
 // ---------------- Scheduler ----------------
 
+HttpsServerCoroutine::Scheduler::~Scheduler()
+{
+    close_socket(wakeup_read_);
+    close_socket(wakeup_write_);
+}
+
+bool HttpsServerCoroutine::Scheduler::initialize_wakeup()
+{
+    if (wakeup_read_ != INVALID_SOCKET && wakeup_write_ != INVALID_SOCKET) {
+        return true;
+    }
+
+    return create_wakeup_pair();
+}
+
+bool HttpsServerCoroutine::Scheduler::set_socket_blocking(SOCKET socket, bool blocking)
+{
+#ifdef _WIN32
+    u_long mode = blocking ? 0 : 1;
+    return ioctlsocket(socket, FIONBIO, &mode) == 0;
+#else
+    int flags = fcntl(socket, F_GETFL, 0);
+
+    if (flags == -1) {
+        return false;
+    }
+
+    if (blocking) {
+        flags &= ~O_NONBLOCK;
+    }
+    else {
+        flags |= O_NONBLOCK;
+    }
+
+    return fcntl(socket, F_SETFL, flags) != -1;
+#endif
+}
+
+void HttpsServerCoroutine::Scheduler::close_socket(SOCKET socket) noexcept
+{
+    if (socket != INVALID_SOCKET) {
+        closesocket(socket);
+    }
+}
+
+bool HttpsServerCoroutine::Scheduler::create_wakeup_pair()
+{
+    SOCKET listener = INVALID_SOCKET;
+    SOCKET reader = INVALID_SOCKET;
+    SOCKET writer = INVALID_SOCKET;
+
+    listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener == INVALID_SOCKET) {
+        return false;
+    }
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+
+    if (bind(listener, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
+        close_socket(listener);
+        return false;
+    }
+
+    if (listen(listener, 1) == SOCKET_ERROR) {
+        close_socket(listener);
+        return false;
+    }
+
+#ifdef _WIN32
+    int addr_len = sizeof(addr);
+#else
+    socklen_t addr_len = sizeof(addr);
+#endif
+
+    if (getsockname(listener, reinterpret_cast<sockaddr*>(&addr), &addr_len) == SOCKET_ERROR) {
+        close_socket(listener);
+        return false;
+    }
+
+    writer = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (writer == INVALID_SOCKET) {
+        close_socket(listener);
+        return false;
+    }
+
+    if (connect(writer, reinterpret_cast<sockaddr*>(&addr), addr_len) == SOCKET_ERROR) {
+        close_socket(writer);
+        close_socket(listener);
+        return false;
+    }
+
+    reader = accept(listener, nullptr, nullptr);
+    close_socket(listener);
+
+    if (reader == INVALID_SOCKET) {
+        close_socket(writer);
+        return false;
+    }
+
+    if (!set_socket_blocking(reader, false) || !set_socket_blocking(writer, false)) {
+        close_socket(reader);
+        close_socket(writer);
+        return false;
+    }
+
+    wakeup_read_ = reader;
+    wakeup_write_ = writer;
+
+    return true;
+}
+
+void HttpsServerCoroutine::Scheduler::notify_wakeup() noexcept
+{
+    if (wakeup_write_ == INVALID_SOCKET) {
+        return;
+    }
+
+    const char byte = 0;
+
+#ifdef MSG_NOSIGNAL
+    const int flags = MSG_NOSIGNAL;
+#else
+    const int flags = 0;
+#endif
+
+    const int sent = send(wakeup_write_, &byte, 1, flags);
+    (void)sent;
+}
+
+void HttpsServerCoroutine::Scheduler::drain_wakeup() noexcept
+{
+    if (wakeup_read_ == INVALID_SOCKET) {
+        return;
+    }
+
+    char buffer[64];
+
+    while (true) {
+        const int received = recv(
+            wakeup_read_,
+            buffer,
+            static_cast<int>(sizeof(buffer)),
+            0
+        );
+
+        if (received > 0) {
+            continue;
+        }
+
+#ifdef _WIN32
+        if (received == SOCKET_ERROR && WSAGetLastError() == WSAEWOULDBLOCK) {
+            return;
+        }
+#else
+        if (received == SOCKET_ERROR && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
+#endif
+
+        return;
+    }
+}
+
 void HttpsServerCoroutine::Scheduler::schedule(std::coroutine_handle<> handle)
 {
-    if (handle) {
+    if (!handle) {
+        return;
+    }
+
+    bool need_wakeup = false;
+
+    {
+        std::lock_guard<std::mutex> lock(ready_mutex_);
+
         ready_.push(handle);
+
+        need_wakeup = std::this_thread::get_id() != event_thread_id_;
+    }
+
+    if (need_wakeup) {
+        notify_wakeup();
     }
 }
 
@@ -32,12 +212,20 @@ void HttpsServerCoroutine::Scheduler::wait_write(SOCKET socket, std::coroutine_h
 
 void HttpsServerCoroutine::Scheduler::run_ready()
 {
-    const std::size_t count = ready_.size();
+    std::vector<std::coroutine_handle<>> ready_handles;
 
-    for (std::size_t i = 0; i < count; ++i) {
-        auto handle = ready_.front();
-        ready_.pop();
+    {
+        std::lock_guard<std::mutex> lock(ready_mutex_);
+        const std::size_t count = ready_.size();
+        ready_handles.reserve(count);
 
+        for (std::size_t i = 0; i < count; ++i) {
+            ready_handles.push_back(ready_.front());
+            ready_.pop();
+        }
+    }
+
+    for (auto handle : ready_handles) {
         if (handle && !handle.done()) {
             handle.resume();
         }
@@ -46,31 +234,46 @@ void HttpsServerCoroutine::Scheduler::run_ready()
 
 void HttpsServerCoroutine::Scheduler::poll_io(int timeout_ms)
 {
-    if (read_waiters_.empty() && write_waiters_.empty()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
-        return;
-    }
-
     fd_set read_set;
     fd_set write_set;
 
     FD_ZERO(&read_set);
     FD_ZERO(&write_set);
 
+    bool has_descriptors = false;
     SOCKET max_socket = 0;
+
+    if (wakeup_read_ != INVALID_SOCKET) {
+        FD_SET(wakeup_read_, &read_set);
+        max_socket = wakeup_read_;
+        has_descriptors = true;
+    }
 
     for (const auto& [socket, handle] : read_waiters_) {
         FD_SET(socket, &read_set);
+
         if (socket > max_socket) {
             max_socket = socket;
         }
+
+        has_descriptors = true;
     }
 
     for (const auto& [socket, handle] : write_waiters_) {
         FD_SET(socket, &write_set);
+
         if (socket > max_socket) {
             max_socket = socket;
         }
+
+        has_descriptors = true;
+    }
+
+    if (!has_descriptors) {
+        if (timeout_ms > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+        }
+        return;
     }
 
     timeval timeout{};
@@ -85,6 +288,10 @@ void HttpsServerCoroutine::Scheduler::poll_io(int timeout_ms)
 
     if (result <= 0) {
         return;
+    }
+
+    if (wakeup_read_ != INVALID_SOCKET && FD_ISSET(wakeup_read_, &read_set)) {
+        drain_wakeup();
     }
 
     std::vector<SOCKET> ready_read;
@@ -104,6 +311,7 @@ void HttpsServerCoroutine::Scheduler::poll_io(int timeout_ms)
 
     for (SOCKET socket : ready_read) {
         auto it = read_waiters_.find(socket);
+
         if (it != read_waiters_.end()) {
             schedule(it->second);
             read_waiters_.erase(it);
@@ -112,16 +320,28 @@ void HttpsServerCoroutine::Scheduler::poll_io(int timeout_ms)
 
     for (SOCKET socket : ready_write) {
         auto it = write_waiters_.find(socket);
+
         if (it != write_waiters_.end()) {
             schedule(it->second);
             write_waiters_.erase(it);
         }
     }
 }
+void HttpsServerCoroutine::Scheduler::bind_event_thread()
+{
+    std::lock_guard<std::mutex> lock(ready_mutex_);
+    event_thread_id_ = std::this_thread::get_id();
+}
+
+bool HttpsServerCoroutine::Scheduler::has_ready() const
+{
+    std::lock_guard<std::mutex> lock(ready_mutex_);
+    return !ready_.empty();
+}
 
 bool HttpsServerCoroutine::Scheduler::has_work() const
 {
-    return !ready_.empty() || !read_waiters_.empty() || !write_waiters_.empty();
+    return has_ready() || !read_waiters_.empty() || !write_waiters_.empty();
 }
 
 // ---------------- Awaiters ----------------
@@ -141,6 +361,150 @@ void HttpsServerCoroutine::YieldToServer::await_suspend(std::coroutine_handle<> 
     scheduler_.schedule(handle);
 }
 
+// ---------------- SQLite worker / awaiter ----------------
+
+HttpsServerCoroutine::SqliteWorker::SqliteWorker(Sqlite_& db)
+    : db_(db), worker_(&SqliteWorker::run, this)
+{}
+
+HttpsServerCoroutine::SqliteWorker::~SqliteWorker()
+{
+    stop();
+}
+
+bool HttpsServerCoroutine::SqliteWorker::submit(Job job)
+{
+    if (!job) {
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (stopping_) {
+            return false;
+        }
+
+        jobs_.push(std::move(job));
+    }
+
+    cv_.notify_one();
+    return true;
+}
+
+void HttpsServerCoroutine::SqliteWorker::stop()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopping_ = true;
+    }
+
+    cv_.notify_one();
+
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+}
+
+void HttpsServerCoroutine::SqliteWorker::run()
+{
+    while (true) {
+        Job job;
+
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [this] {
+                return stopping_ || !jobs_.empty();
+            });
+
+            if (stopping_ && jobs_.empty()) {
+                return;
+            }
+
+            job = std::move(jobs_.front());
+            jobs_.pop();
+        }
+
+        job(db_);
+    }
+}
+
+HttpsServerCoroutine::SqliteAwaiter::SqliteAwaiter(
+    HttpsServerCoroutine& server,
+    std::string response
+)
+    : server_(server), state_(std::make_shared<State>())
+{
+    state_->response = std::move(response);
+}
+
+HttpsServerCoroutine::SqliteAwaiter::SqliteAwaiter(
+    HttpsServerCoroutine& server,
+    Work work
+)
+    : server_(server), state_(std::make_shared<State>()), work_(std::move(work))
+{}
+
+bool HttpsServerCoroutine::SqliteAwaiter::await_ready() const noexcept
+{
+    return !work_;
+}
+
+void HttpsServerCoroutine::SqliteAwaiter::await_suspend(std::coroutine_handle<> handle)
+{
+    if (!work_ || !server_.sqlite_worker) {
+        state_->response = server_.MakeHttpResponse(
+            "HTTP/1.1 500 Internal Server Error",
+            "text/plain",
+            "Database worker is not configured"
+        );
+        server_.scheduler_.schedule(handle);
+        return;
+    }
+
+    auto state = state_;
+    auto work = std::move(work_);
+    HttpsServerCoroutine* server = &server_;
+
+    const bool submitted = server_.sqlite_worker->submit(
+        [state, work = std::move(work), server, handle](Sqlite_& db) mutable {
+            try {
+                state->response = work(db);
+            }
+            catch (const std::exception& e) {
+                state->response = server->MakeHttpResponse(
+                    "HTTP/1.1 500 Internal Server Error",
+                    "text/plain",
+                    std::string("Database operation failed: ") + e.what()
+                );
+            }
+            catch (...) {
+                state->response = server->MakeHttpResponse(
+                    "HTTP/1.1 500 Internal Server Error",
+                    "text/plain",
+                    "Database operation failed"
+                );
+            }
+
+            server->scheduler_.schedule(handle);
+        }
+    );
+
+    if (!submitted) {
+        state_->response = server_.MakeHttpResponse(
+            "HTTP/1.1 503 Service Unavailable",
+            "text/plain",
+            "Database worker is stopped"
+        );
+        server_.scheduler_.schedule(handle);
+    }
+}
+
+std::optional<std::string> HttpsServerCoroutine::SqliteAwaiter::await_resume()
+{
+    return std::move(state_->response);
+}
+
 // ---------------- HttpsServerCoroutine ----------------
 
 HttpsServerCoroutine::HttpsServerCoroutine(std::string_view cert, std::string_view private_key)
@@ -152,6 +516,11 @@ HttpsServerCoroutine::HttpsServerCoroutine(std::string_view cert, std::string_vi
         std::exit(EXIT_FAILURE);
     }
 #endif
+
+    if (!scheduler_.initialize_wakeup()) {
+        std::cerr << "Failed to initialize scheduler wakeup socket\n";
+        std::exit(EXIT_FAILURE);
+    }
 
     SSL_library_init();
     OpenSSL_add_all_algorithms();
@@ -207,12 +576,18 @@ HttpsServerCoroutine::HttpsServerCoroutine(
 {
     if (!name_bd.empty()) {
         bd_sqlite = std::make_unique<Sqlite_>(name_bd, fields);
+        sqlite_worker = std::make_unique<SqliteWorker>(*bd_sqlite);
     }
 }
 
 HttpsServerCoroutine::~HttpsServerCoroutine()
 {
     Stop();
+
+    if (sqlite_worker) {
+        sqlite_worker->stop();
+    }
+
     active_sessions_.clear();
 
     if (ssl_ctx) {
@@ -245,6 +620,8 @@ bool HttpsServerCoroutine::Listen(const int& port)
         return false;
     }
 
+    scheduler_.bind_event_thread();
+
     SetSocketBlocking(listen_sock, false);
     running = true;
 
@@ -253,7 +630,8 @@ bool HttpsServerCoroutine::Listen(const int& port)
         scheduler_.run_ready();
         CleanupFinishedSessions();
         DoServiceWork();
-        scheduler_.poll_io(10);
+        const int io_timeout_ms = scheduler_.has_ready() ? 0 : 10;
+        scheduler_.poll_io(io_timeout_ms);
     }
 
     return true;
@@ -445,7 +823,7 @@ HttpsServerCoroutine::Task HttpsServerCoroutine::HandleClient(SOCKET client_sock
 
     co_await YieldToServer(scheduler_);
 
-    std::optional<std::string> response_opt = BuildResponseFromRequest(request);
+    std::optional<std::string> response_opt = co_await BuildResponseFromRequest(request);
 
     std::string response = response_opt.value_or(
         MakeHttpResponse(
@@ -524,7 +902,7 @@ bool HttpsServerCoroutine::IsWouldBlock() const
 #endif
 }
 
-std::optional<std::string> HttpsServerCoroutine::BuildResponseFromRequest(const std::string& request)
+HttpsServerCoroutine::SqliteAwaiter HttpsServerCoroutine::BuildResponseFromRequest(const std::string& request)
 {
     std::istringstream request_stream(request);
     std::string method;
@@ -552,14 +930,17 @@ std::optional<std::string> HttpsServerCoroutine::BuildResponseFromRequest(const 
         return HandleDelete(request, path);
     }
 
-    return MakeHttpResponse(
-        "HTTP/1.1 405 Method Not Allowed",
-        "text/plain",
-        "Method Not Allowed"
+    return SqliteAwaiter(
+        *this,
+        MakeHttpResponse(
+            "HTTP/1.1 405 Method Not Allowed",
+            "text/plain",
+            "Method Not Allowed"
+        )
     );
 }
 
-std::string HttpsServerCoroutine::HandleGet(const std::string& request, const std::string& path)
+HttpsServerCoroutine::SqliteAwaiter HttpsServerCoroutine::HandleGet(const std::string& request, const std::string& path)
 {
     for (const auto& p : arr_api_pairs) {
         if (p.first.method != "GET") {
@@ -570,16 +951,27 @@ std::string HttpsServerCoroutine::HandleGet(const std::string& request, const st
             if (p.second) {
                 std::string response_body;
                 p.second(request, response_body);
-                return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body);
+                return SqliteAwaiter(
+                    *this,
+                    MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body)
+                );
             }
 
             if (bd_sqlite) {
-                std::string body;
-                bd_sqlite->getItems(body);
-                return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", body);
+                return SqliteAwaiter(
+                    *this,
+                    [this](Sqlite_& db) {
+                        std::string body;
+                        db.getItems(body);
+                        return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", body);
+                    }
+                );
             }
 
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured");
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured")
+            );
         }
     }
 
@@ -590,27 +982,36 @@ std::string HttpsServerCoroutine::HandleGet(const std::string& request, const st
     }
 
     if (target.find("..") != std::string::npos) {
-        return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Bad path");
+        return SqliteAwaiter(
+            *this,
+            MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Bad path")
+        );
     }
 
     const std::string file_path = path_web + target;
 
     if (!std::filesystem::exists(file_path) || !std::filesystem::is_regular_file(file_path)) {
-        return MakeHttpResponse(
-            "HTTP/1.1 404 Not Found",
-            "text/html",
-            "<html><body><h1 align=\"center\">404 Page not found</h1></body></html>"
+        return SqliteAwaiter(
+            *this,
+            MakeHttpResponse(
+                "HTTP/1.1 404 Not Found",
+                "text/html",
+                "<html><body><h1 align=\"center\">404 Page not found</h1></body></html>"
+            )
         );
     }
 
-    return MakeHttpResponse(
-        "HTTP/1.1 200 OK",
-        GetMimeType(file_path),
-        GetFileContent(file_path)
+    return SqliteAwaiter(
+        *this,
+        MakeHttpResponse(
+            "HTTP/1.1 200 OK",
+            GetMimeType(file_path),
+            GetFileContent(file_path)
+        )
     );
 }
 
-std::string HttpsServerCoroutine::HandlePost(
+HttpsServerCoroutine::SqliteAwaiter HttpsServerCoroutine::HandlePost(
     const std::string& request,
     const std::string& path,
     const std::string& body
@@ -628,12 +1029,20 @@ std::string HttpsServerCoroutine::HandlePost(
         if (p.second) {
             std::string response_body;
             p.second(request, response_body);
-            return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body);
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body)
+            );
         }
 
         if (!bd_sqlite) {
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured");
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured")
+            );
         }
+
+        const std::vector<std::string> fields = bd_sqlite->_fields;
 
         Json::CharReaderBuilder reader;
         Json::Value jsonData;
@@ -641,51 +1050,65 @@ std::string HttpsServerCoroutine::HandlePost(
         std::string errs;
 
         if (!Json::parseFromStream(reader, sstream, &jsonData, &errs)) {
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", errs);
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", errs)
+            );
         }
 
         bool has_all_fields = true;
 
-        for (std::size_t i = 0; i < bd_sqlite->_fields.size(); ++i) {
-            if (!jsonData.isMember(bd_sqlite->_fields[i])) {
+        for (const auto& field : fields) {
+            if (!jsonData.isMember(field)) {
                 has_all_fields = false;
                 break;
             }
         }
 
         if (!has_all_fields) {
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Missing JSON field");
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Missing JSON field")
+            );
         }
 
         std::vector<std::string> data_add;
 
-        for (std::size_t i = 0; i < bd_sqlite->_fields.size(); ++i) {
-            data_add.emplace_back(jsonData[bd_sqlite->_fields[i]].asString());
+        for (const auto& field : fields) {
+            data_add.emplace_back(jsonData[field].asString());
         }
 
-        std::string response;
-        const int id_last = bd_sqlite->addItem(data_add, response);
+        return SqliteAwaiter(
+            *this,
+            [this, data_add = std::move(data_add), fields](Sqlite_& db) mutable {
+                std::string response;
+                const int id_last = db.addItem(data_add, response);
 
-        if (response == "Success") {
-            response.clear();
-            Json::Value response_json;
-            response_json["id"] = id_last;
+                if (response == "Success") {
+                    response.clear();
+                    Json::Value response_json;
+                    response_json["id"] = id_last;
 
-            for (std::size_t i = 0; i < bd_sqlite->_fields.size(); ++i) {
-                response_json[bd_sqlite->_fields[i]] = data_add[i];
+                    for (std::size_t i = 0; i < fields.size(); ++i) {
+                        response_json[fields[i]] = data_add[i];
+                    }
+
+                    Json::StreamWriterBuilder writer;
+                    response = Json::writeString(writer, response_json);
+                }
+
+                return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response);
             }
-
-            Json::StreamWriterBuilder writer;
-            response = Json::writeString(writer, response_json);
-        }
-
-        return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response);
+        );
     }
 
-    return MakeHttpResponse("HTTP/1.1 404 Not Found", "text/plain", "404 Not Found");
+    return SqliteAwaiter(
+        *this,
+        MakeHttpResponse("HTTP/1.1 404 Not Found", "text/plain", "404 Not Found")
+    );
 }
 
-std::string HttpsServerCoroutine::HandleDelete(const std::string& request, const std::string& path)
+HttpsServerCoroutine::SqliteAwaiter HttpsServerCoroutine::HandleDelete(const std::string& request, const std::string& path)
 {
     for (const auto& p : arr_api_pairs) {
         if (p.first.method != "DELETE") {
@@ -701,11 +1124,17 @@ std::string HttpsServerCoroutine::HandleDelete(const std::string& request, const
         if (p.second) {
             std::string response_body;
             p.second(request, response_body);
-            return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body);
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response_body)
+            );
         }
 
         if (!bd_sqlite) {
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured");
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Database is not configured")
+            );
         }
 
         const std::string id_text = path.substr(path.find_last_of('/') + 1);
@@ -715,16 +1144,26 @@ std::string HttpsServerCoroutine::HandleDelete(const std::string& request, const
             id = std::stoi(id_text);
         }
         catch (...) {
-            return MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Bad id");
+            return SqliteAwaiter(
+                *this,
+                MakeHttpResponse("HTTP/1.1 400 Bad Request", "text/plain", "Bad id")
+            );
         }
 
-        std::string response;
-        bd_sqlite->deleteItem(id, response);
-
-        return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response);
+        return SqliteAwaiter(
+            *this,
+            [this, id](Sqlite_& db) {
+                std::string response;
+                db.deleteItem(id, response);
+                return MakeHttpResponse("HTTP/1.1 200 OK", "application/json", response);
+            }
+        );
     }
 
-    return MakeHttpResponse("HTTP/1.1 404 Not Found", "text/plain", "404 Not Found");
+    return SqliteAwaiter(
+        *this,
+        MakeHttpResponse("HTTP/1.1 404 Not Found", "text/plain", "404 Not Found")
+    );
 }
 
 std::string HttpsServerCoroutine::MakeHttpResponse(

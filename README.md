@@ -32,7 +32,9 @@ This project shows an example of using stackless coroutines (including nested co
        srv.Use("DELETE", "/api/items/id", nullptr);
 ```
 ### 2.  Extended server version
-`serv_coroutine` uses C++20 coroutines to process socket/SSL operations through client coroutine sessions and a scheduler. While a session is waiting for socket-read or socket-write readiness, the server loop can run a service function.
+`serv_coroutine` uses C++20 coroutines to process non-blocking socket/SSL operations through client coroutine sessions and a select-based scheduler. While a session is waiting for socket-read or socket-write readiness, the server loop can accept clients, resume other ready sessions, and run a service function.
+
+SQLite operations are offloaded to a dedicated worker thread. When a database operation is required, the client coroutine is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket is used to notify the select-based scheduler about ready coroutines scheduled from the worker thread.
  ```cpp
  #include "serv_coroutine/HttpsServerCoroutine.h"
  ```

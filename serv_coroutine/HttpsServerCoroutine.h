@@ -23,6 +23,7 @@ using ADDRINFO = struct addrinfo;
 #define WSAGetLastError() (errno)
 #endif
 
+#include <condition_variable>
 #include <coroutine>
 #include <cstddef>
 #include <filesystem>
@@ -32,11 +33,13 @@ using ADDRINFO = struct addrinfo;
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -49,6 +52,9 @@ using ADDRINFO = struct addrinfo;
 
 class HttpsServerCoroutine
 {
+public:
+    class Sqlite_;
+
 private:
     struct RestUrl {
         std::string method;
@@ -148,18 +154,44 @@ private:
     class Scheduler
     {
     public:
+        Scheduler() = default;
+        ~Scheduler();
+
+        Scheduler(const Scheduler&) = delete;
+        Scheduler& operator=(const Scheduler&) = delete;
+
+        void bind_event_thread();
+
+        bool initialize_wakeup();
+
         void schedule(std::coroutine_handle<> handle);
         void wait_read(SOCKET socket, std::coroutine_handle<> handle);
         void wait_write(SOCKET socket, std::coroutine_handle<> handle);
 
         void run_ready();
         void poll_io(int timeout_ms);
+        bool has_ready() const;
         bool has_work() const;
 
     private:
+        
+        std::thread::id event_thread_id_{};
+
+        static bool set_socket_blocking(SOCKET socket, bool blocking);
+        static void close_socket(SOCKET socket) noexcept;
+
+        bool create_wakeup_pair();
+        void notify_wakeup() noexcept;
+        void drain_wakeup() noexcept;
+
         std::queue<std::coroutine_handle<>> ready_;
+        mutable std::mutex ready_mutex_;
+
         std::unordered_map<SOCKET, std::coroutine_handle<>> read_waiters_;
         std::unordered_map<SOCKET, std::coroutine_handle<>> write_waiters_;
+
+        SOCKET wakeup_read_ = INVALID_SOCKET;
+        SOCKET wakeup_write_ = INVALID_SOCKET;
     };
 
     class WaitRead
@@ -209,6 +241,54 @@ private:
         Scheduler& scheduler_;
     };
 
+    class SqliteWorker
+    {
+    public:
+        using Job = std::function<void(Sqlite_&)>;
+
+        explicit SqliteWorker(Sqlite_& db);
+        ~SqliteWorker();
+
+        SqliteWorker(const SqliteWorker&) = delete;
+        SqliteWorker& operator=(const SqliteWorker&) = delete;
+
+        bool submit(Job job);
+        void stop();
+
+    private:
+        void run();
+
+        Sqlite_& db_;
+        std::mutex mutex_;
+        std::condition_variable cv_;
+        std::queue<Job> jobs_;
+        bool stopping_ = false;
+        std::thread worker_;
+    };
+
+    class SqliteAwaiter
+    {
+    public:
+        using Work = std::function<std::string(Sqlite_&)>;
+
+        SqliteAwaiter(HttpsServerCoroutine& server, std::string response);
+        SqliteAwaiter(HttpsServerCoroutine& server, Work work);
+
+        bool await_ready() const noexcept;
+        void await_suspend(std::coroutine_handle<> handle);
+        std::optional<std::string> await_resume();
+
+    private:
+        struct State
+        {
+            std::optional<std::string> response;
+        };
+
+        HttpsServerCoroutine& server_;
+        std::shared_ptr<State> state_;
+        Work work_;
+    };
+
 public:
     class Sqlite_
     {
@@ -255,10 +335,10 @@ private:
     bool SetSocketBlocking(SOCKET socket, bool blocking);
     bool IsWouldBlock() const;
 
-    std::optional<std::string> BuildResponseFromRequest(const std::string& request);
-    std::string HandleGet(const std::string& request, const std::string& path);
-    std::string HandlePost(const std::string& request, const std::string& path, const std::string& body);
-    std::string HandleDelete(const std::string& request, const std::string& path);
+    SqliteAwaiter BuildResponseFromRequest(const std::string& request);
+    SqliteAwaiter HandleGet(const std::string& request, const std::string& path);
+    SqliteAwaiter HandlePost(const std::string& request, const std::string& path, const std::string& body);
+    SqliteAwaiter HandleDelete(const std::string& request, const std::string& path);
 
     std::string MakeHttpResponse(
         const std::string& status,
@@ -278,6 +358,7 @@ private:
 private:
     arr_pairs arr_api_pairs;
     std::unique_ptr<Sqlite_> bd_sqlite;
+    std::unique_ptr<SqliteWorker> sqlite_worker;
 
     SSL_CTX* ssl_ctx = nullptr;
     SOCKET listen_sock = INVALID_SOCKET;
