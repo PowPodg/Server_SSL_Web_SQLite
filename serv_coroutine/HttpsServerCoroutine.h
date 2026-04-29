@@ -64,6 +64,10 @@ private:
     static constexpr int SIZE_GET_REQ = 4096;
     static constexpr std::size_t MAX_HTTP_REQUEST_SIZE = 1024 * 1024;
 
+    static constexpr std::size_t MAX_PENDING_CLIENTS = 1024;
+    static constexpr std::size_t MAX_ACTIVE_SESSIONS = 4096;
+    static constexpr std::size_t MAX_START_PER_TICK = 64;
+
 public:
     using VoidFun = std::function<void(const std::string&, std::string&)>;
     using ServiceFun = std::function<void()>;

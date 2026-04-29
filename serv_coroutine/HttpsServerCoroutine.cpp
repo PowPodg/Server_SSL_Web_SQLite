@@ -706,6 +706,15 @@ void HttpsServerCoroutine::TryAcceptClients()
             return;
         }
 
+        const std::size_t total_clients =
+            pending_clients_.size() + active_sessions_.size();
+
+        if (pending_clients_.size() >= MAX_PENDING_CLIENTS ||
+            total_clients >= MAX_ACTIVE_SESSIONS) {
+            CloseSocket(client_sock);
+            continue;
+        }
+
         if (!SetSocketBlocking(client_sock, false)) {
             CloseSocket(client_sock);
             continue;
@@ -718,11 +727,9 @@ void HttpsServerCoroutine::TryAcceptClients()
 
 void HttpsServerCoroutine::StartPendingClients()
 {
-    constexpr std::size_t max_start_per_tick = 64;
-
     std::size_t started = 0;
 
-    while (!pending_clients_.empty() && started < max_start_per_tick) {
+    while (!pending_clients_.empty() && started < MAX_START_PER_TICK) {
         SOCKET client_sock = pending_clients_.front();
         pending_clients_.pop();
 
