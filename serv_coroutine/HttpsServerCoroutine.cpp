@@ -587,7 +587,7 @@ HttpsServerCoroutine::~HttpsServerCoroutine()
     if (sqlite_worker) {
         sqlite_worker->stop();
     }
-
+    ClosePendingClients();
     active_sessions_.clear();
 
     if (ssl_ctx) {
@@ -627,10 +627,11 @@ bool HttpsServerCoroutine::Listen(const int& port)
 
     while (running) {
         TryAcceptClients();
+        StartPendingClients();
         scheduler_.run_ready();
         CleanupFinishedSessions();
         DoServiceWork();
-        const int io_timeout_ms = scheduler_.has_ready() ? 0 : 10;
+        const int io_timeout_ms = (scheduler_.has_ready() || !pending_clients_.empty()) ? 0 : 10;
         scheduler_.poll_io(io_timeout_ms);
     }
 
@@ -705,10 +706,38 @@ void HttpsServerCoroutine::TryAcceptClients()
             return;
         }
 
-        SetSocketBlocking(client_sock, false);
+        if (!SetSocketBlocking(client_sock, false)) {
+            CloseSocket(client_sock);
+            continue;
+        }
+
+        pending_clients_.push(client_sock);
+
+    }
+}
+
+void HttpsServerCoroutine::StartPendingClients()
+{
+    constexpr std::size_t max_start_per_tick = 64;
+
+    std::size_t started = 0;
+
+    while (!pending_clients_.empty() && started < max_start_per_tick) {
+        SOCKET client_sock = pending_clients_.front();
+        pending_clients_.pop();
 
         active_sessions_.push_back(HandleClient(client_sock));
         active_sessions_.back().start();
+
+        ++started;
+    }
+}
+
+void HttpsServerCoroutine::ClosePendingClients() noexcept
+{
+    while (!pending_clients_.empty()) {
+        CloseSocket(pending_clients_.front());
+        pending_clients_.pop();
     }
 }
 

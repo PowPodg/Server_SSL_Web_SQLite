@@ -329,7 +329,10 @@ public:
 
 private:
     SOCKET Create_listen_socket(const int& port);
+
     void TryAcceptClients();
+    void StartPendingClients();
+    void ClosePendingClients() noexcept;
     Task HandleClient(SOCKET client_sock);
 
     bool SetSocketBlocking(SOCKET socket, bool blocking);
@@ -364,6 +367,7 @@ private:
     SOCKET listen_sock = INVALID_SOCKET;
 
     Scheduler scheduler_;
+    std::queue<SOCKET> pending_clients_;
     std::list<Task> active_sessions_;
 
     std::string path_web;
