@@ -33,9 +33,11 @@ This project shows an example of using stackless coroutines (including nested co
 ```
 ### 2. Extended server version
 
-- `serv_coroutine` uses C++20 coroutines to process non-blocking socket/SSL operations through client coroutine sessions and a select-based scheduler. While a session is waiting for socket-read or socket-write readiness, the server loop can accept clients, resume other ready sessions, and run a service function.  
-- Accepted client sockets are first placed into an internal pending-client queue. The accept phase does not start `HandleClient` immediately, so accepting ready connections from the OS backlog is kept separate from starting client coroutine sessions. Pending clients are then started in a bounded phase of the event loop. This improves connection burst handling for clients: newly accepted sockets are removed from the OS backlog quickly and queued inside the server before their `HandleClient` coroutine sessions are started. As a result, the initial execution of one accepted client session does not delay accepting other clients that are already waiting to connect.  
-- SQLite operations are offloaded to a dedicated worker thread. When a database operation is required, the client coroutine is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket is used to notify the select-based scheduler about ready coroutines scheduled from the worker thread.
+`serv_coroutine` uses C++20 coroutines to process non-blocking socket/SSL operations through client coroutine sessions and a select-based scheduler. While a session waits for socket-read or socket-write readiness, the server loop can accept clients, resume other ready sessions, and run a service function.
+
+**Pending client queue.** Accepted sockets are first queued inside the server. The accept phase does not start `HandleClient` immediately; it only removes ready connections from the OS backlog and stores their sockets. Client coroutine sessions are started later in a bounded event-loop phase. This prevents the initial execution of one accepted client session from delaying further `accept()` calls.
+
+**SQLite worker.** SQLite operations are offloaded to a dedicated worker thread. A client coroutine that needs a database result is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket notifies the select-based scheduler about ready coroutines scheduled from the worker thread.
  ```cpp
  #include "serv_coroutine/HttpsServerCoroutine.h"
  ```
