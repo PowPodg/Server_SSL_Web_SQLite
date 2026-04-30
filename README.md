@@ -37,11 +37,13 @@ This project shows an example of using stackless coroutines (including nested co
 
 **Pending client queue.** Accepted sockets are first queued inside the server. The accept phase does not start `HandleClient` immediately; it only removes ready connections from the OS backlog and stores their sockets. Client coroutine sessions are started later in a bounded event-loop phase. This prevents the initial execution of one accepted client session from delaying further `accept()` calls.
 
-**SQLite worker.** SQLite operations are offloaded to a dedicated worker thread. A client coroutine that needs a database result is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket notifies the select-based scheduler about ready coroutines scheduled from the worker thread.
+**SQLite worker.** SQLite operations are offloaded to a dedicated worker thread. A client coroutine that needs a database result is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket notifies the select-based scheduler about ready coroutines scheduled from the worker thread.    
+     
+The server runtime behavior is shown in the [activity diagram](./serv_coroutine/docs/Coroutine_Server.bmp)
+
  ```cpp
  #include "serv_coroutine/HttpsServerCoroutine.h"
  ```
-The server runtime behavior is shown in the activity diagram stored here: [Coroutine_Server.bmp](./serv_coroutine/docs/Coroutine_Server.bmp)
 
 ### 3. Base server version with PostgreSQL. 
 It is implemented in C++ using C++20 coroutines, the Boost.Asio library (version 1.80+ to support C++20 coroutines) 
