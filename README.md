@@ -39,7 +39,7 @@ This project shows an example of using stackless coroutines (including nested co
 
 **SQLite worker.** SQLite operations are offloaded to a dedicated worker thread. A client coroutine that needs a database result is suspended and resumed after the SQLite worker completes the job. An internal wakeup socket notifies the select-based scheduler about ready coroutines scheduled from the worker thread.    
      
-The server runtime behavior is shown in the [activity diagram](./serv_coroutine/docs/Coroutine_Server.bmp)
+The server runtime behavior is shown in the [activity diagram](./serv_coroutine/docs/Coroutine_Server.png)
 
  ```cpp
  #include "serv_coroutine/HttpsServerCoroutine.h"
