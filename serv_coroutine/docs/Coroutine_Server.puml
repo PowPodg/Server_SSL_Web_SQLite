@@ -1,0 +1,114 @@
+@startuml
+title Activity Diagram: Coroutine-Based Server
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam dpi 150
+skinparam DefaultFontName Arial
+skinparam DefaultFontSize 13
+
+skinparam activity {
+  BorderColor #444444
+  ArrowColor #444444
+  FontColor #222222
+  BackgroundColor white
+  DiamondBackgroundColor #F7F7F7
+  DiamondBorderColor #444444
+}
+
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #999999
+  FontColor #222222
+}
+
+|#D9EAF7|Server Main Loop|
+start
+
+repeat
+  :TryAcceptClients();
+  :StartPendingClients();
+
+  |#D5E8D4|Coroutine HandleClient|
+  :Create / start\nHandleClient(client_sock);
+  :TLS handshake;
+
+  while (Handshake complete?) is (no)
+    |#FCE5CD|External Waits / Events|
+    :WaitRead / WaitWrite;
+    note right
+      co_await
+      coroutine suspended
+      resume later
+    end note
+
+    |#D9EAF7|Server Main Loop|
+    :scheduler.poll_io();
+    :scheduler.run_ready();
+
+    |#D5E8D4|Coroutine HandleClient|
+    :Resume TLS handshake;
+  endwhile (yes)
+
+  :Read HTTP request;
+
+  while (Request complete?) is (no)
+    |#FCE5CD|External Waits / Events|
+    :WaitRead / WaitWrite\nor YieldToServer;
+    note right
+      co_await
+      coroutine suspended
+      resume later
+    end note
+
+    |#D9EAF7|Server Main Loop|
+    :scheduler.run_ready();
+
+    |#D5E8D4|Coroutine HandleClient|
+    :Resume request processing;
+  endwhile (yes)
+
+  :Build HTTP response;
+
+  if (SQLite needed?) then (yes)
+    |#FCE5CD|External Waits / Events|
+    #E1D5E7:SQLite worker\nRun SQL task\nschedule(handle);
+
+    |#D9EAF7|Server Main Loop|
+    :scheduler.run_ready();
+
+    |#D5E8D4|Coroutine HandleClient|
+    :Resume with DB result;
+  else (no)
+  endif
+
+  :Send HTTP response;
+
+  while (Response fully sent?) is (no)
+    |#FCE5CD|External Waits / Events|
+    :WaitRead / WaitWrite\nor YieldToServer;
+    note right
+      co_await
+      coroutine suspended
+      resume later
+    end note
+
+    |#D9EAF7|Server Main Loop|
+    :scheduler.poll_io();
+    :scheduler.run_ready();
+
+    |#D5E8D4|Coroutine HandleClient|
+    :Resume response sending;
+  endwhile (yes)
+
+  :Close SSL / socket;
+  #E6E6E6:Coroutine finished;
+
+  |#D9EAF7|Server Main Loop|
+  :CleanupFinishedSessions();
+  :scheduler.poll_io();
+
+repeat while (server running?) is (yes)
+
+stop
+@enduml

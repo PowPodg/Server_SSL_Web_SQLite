@@ -41,6 +41,7 @@ This project shows an example of using stackless coroutines (including nested co
  ```cpp
  #include "serv_coroutine/HttpsServerCoroutine.h"
  ```
+The server runtime behavior is shown in the activity diagram stored here: [Coroutine_Server.bmp](./serv_coroutine/docs/Coroutine_Server.bmp)
 
 ### 3. Base server version with PostgreSQL. 
 It is implemented in C++ using C++20 coroutines, the Boost.Asio library (version 1.80+ to support C++20 coroutines) 
