@@ -234,8 +234,8 @@ void HttpsServerCoroutine::Scheduler::run_ready()
 
 void HttpsServerCoroutine::Scheduler::poll_io(int timeout_ms)
 {
-    fd_set read_set;
-    fd_set write_set;
+    fd_set read_set = {};
+    fd_set write_set = {};
 
     FD_ZERO(&read_set);
     FD_ZERO(&write_set);
@@ -857,7 +857,7 @@ HttpsServerCoroutine::Task HttpsServerCoroutine::HandleClient(SOCKET client_sock
         co_return;
     }
 
-    co_await YieldToServer(scheduler_);
+   // co_await YieldToServer(scheduler_);
 
     std::optional<std::string> response_opt = co_await BuildResponseFromRequest(request);
 
@@ -869,7 +869,7 @@ HttpsServerCoroutine::Task HttpsServerCoroutine::HandleClient(SOCKET client_sock
         )
     );
 
-    co_await YieldToServer(scheduler_);
+  //  co_await YieldToServer(scheduler_);
 
     std::size_t offset = 0;
 
